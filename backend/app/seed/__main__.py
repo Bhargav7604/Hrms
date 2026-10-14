@@ -15,6 +15,7 @@ import time
 from datetime import date, datetime, timedelta
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.records import fetch
 from app.core.registry import load_registry
@@ -39,6 +40,17 @@ from .masters import (
     TARIFF,
     USERS,
     WARDS,
+)
+from .phase2 import (
+    STATS,
+    counter_tokens,
+    iso,
+    jpatch,
+    opd_times,
+    opd_visit_token,
+    seed_phase2_activity,
+    seed_phase2_masters,
+    summary,
 )
 
 rnd = random.Random(2026)
@@ -338,12 +350,24 @@ async def seed_demo(ids: dict, n_patients: int = 1500) -> None:
                     status = rnd.choice(["Completed"] * 9 + ["No-show", "Cancelled"])
                 else:
                     status = "Completed" if slot_min < 10 * 60 + 30 else rnd.choice(["Checked-in", "Booked", "Booked", "In Consultation"])
+                # arrived visits carry check-in → consultation start → finish times and a doctor-cabin token
+                flow, tok_id = {}, None
+                if status in ("Completed", "In Consultation", "Checked-in"):
+                    times = opd_times(d, slot_min, status, not back)
+                    tok_id = new_id()
+                    flow = {k: iso(v) for k, v in times.items() if v}
+                    code = ((ids.get("emp") or {}).get(doc) or {}).get("code")
+                    if code:
+                        flow.update(queue_token=tok_id, queue_label=f"{i + 1:03d}")
                 a = await create(ctx, "appointments.appointments", {
                     "patient_id": pid, "doctor_id": doc, "department_id": ids["dept"][dept], "appt_date": d.isoformat(), "slot": slot,
                     "type": rnd.choice(["New", "New", "Follow-up", "Review with reports"]), "booking_source": rnd.choice(["Walk-in", "Phone", "Online", "Patient Portal"]),
-                    "token_no": i + 1, "status": status, "cancel_reason": "Patient request" if status == "Cancelled" else None,
+                    "token_no": i + 1, "status": status, "cancel_reason": "Patient request" if status == "Cancelled" else None, **flow,
                 })
                 await backdate(ctx, "appointments", a["id"], at(d, slot_min // 60, slot_min % 60))
+                if flow.get("queue_token"):
+                    await opd_visit_token(ctx, ids, a, times, status, tok_id,
+                                          "Senior Citizen" if rnd.random() < 0.18 else "Normal")
                 if status in ("Completed", "In Consultation", "Checked-in"):
                     ch = await post_charge(ctx, patient_id=pid, service_code="CONS-OPD", rate=rnd.choice([500, 600, 800, 1000]),
                                            description="OPD consultation", source="appointments.appointments", source_id=a["id"])
@@ -355,6 +379,7 @@ async def seed_demo(ids: dict, n_patients: int = 1500) -> None:
                         await demo_order(ctx, ids, pid, None, "RAD", rnd.choice(rad_codes), d, slot_min, verified=bool(back) or rnd.random() < 0.3)
                     if status == "Completed":
                         await demo_bill(ctx, pid, None, "OP", d, slot_min + 20)
+            await counter_tokens(ctx, ids, d, pids, not back)
         log(f"OPD {d.isoformat()}: {n} appointments")
 
     # ---- inpatients: currently admitted (~65% occupancy) + discharged history
@@ -363,28 +388,48 @@ async def seed_demo(ids: dict, n_patients: int = 1500) -> None:
     target = int(len(ip_beds) * 0.66)
     inpatients = rnd.sample(pids, min(target, len(pids)))
     target = len(inpatients)
+    ids["inpatient_pids"] = set(inpatients)
+    ids["admissions"] = []
+    payers = ids.get("payers") or {}
     async with system_ctx() as ctx:
         for b, pid in zip(ip_beds[:target], inpatients, strict=True):
             docs = ids["doctors"].get(b["dept"]) or ids["doctors"]["GMED"]
             days_in = rnd.randint(0, 9)
             start = today() - timedelta(days=days_in)
+            started = min(datetime.fromisoformat(at(start, rnd.randint(8, 22), rnd.choice([0, 15, 30, 45]))),
+                          now() - timedelta(minutes=rnd.randint(20, 240)))
+            payer = rnd.choice(["Cash", "Cash", "Insurance", "Insurance", "Corporate", "Government Scheme"])
+            sponsor = rnd.choice(payers[payer]) if payers.get(payer) else None
+            terms = {"sponsor": sponsor, "authorisation_no": f"AUTH/{rnd.randint(100000, 999999)}",
+                     "approved_amount": rnd.choice([50000, 75000, 100000, 150000, 200000, None])} if sponsor else {}
+            diagnosis = rnd.choice(["Community acquired pneumonia", "Acute gastroenteritis", "Type 2 DM with cellulitis", "Dengue fever",
+                                    "Acute coronary syndrome", "Fracture neck of femur", "Acute appendicitis", "COPD exacerbation",
+                                    "CKD stage 5 on HD", "Cerebrovascular accident", "Urinary tract infection", "Post-partum care"])
             enc = await create(ctx, "ipd.admissions", {
                 "patient_id": pid, "doctor_id": rnd.choice(docs), "department_id": ids["dept"][b["dept"]], "bed_id": b["id"],
                 "admission_type": rnd.choice(["Elective", "Emergency", "Emergency"]), "admission_source": rnd.choice(["OPD", "ER"]),
-                "diagnosis": rnd.choice(["Community acquired pneumonia", "Acute gastroenteritis", "Type 2 DM with cellulitis", "Dengue fever",
-                                         "Acute coronary syndrome", "Fracture neck of femur", "Acute appendicitis", "COPD exacerbation",
-                                         "CKD stage 5 on HD", "Cerebrovascular accident", "Urinary tract infection", "Post-partum care"]),
-                "payer": rnd.choice(["Cash", "Insurance", "Insurance", "Government Scheme"]), "expected_los": rnd.randint(2, 8),
-                "started_at": at(start, rnd.randint(8, 22), rnd.choice([0, 15, 30, 45])),
-                "status": "Admitted",
+                "diagnosis": diagnosis, "payer": payer if sponsor or payer == "Cash" else "Cash", "expected_los": rnd.randint(2, 8),
+                "started_at": iso(started), "status": "Admitted", **{k: v for k, v in terms.items() if v is not None},
                 "attendant_name": f"{rnd.choice(FIRST_M + FIRST_F)} {rnd.choice(LAST)}", "attendant_phone": phone(),
             })
             await update(ctx, "ipd.beds", b["id"], {"status": "Occupied", "current_patient": pid, "current_encounter": enc["id"],
                                                     "status_since": enc["started_at"]})
+            adm_status = "Admitted"
             if days_in >= 4 and rnd.random() < 0.12:
-                # through the real workflow so the ADT engine opens the discharge checklist
+                # through the real workflow so the ADT engine opens the discharge checklist; the decision time is then
+                # moved to earlier today so the discharge desk shows realistic waiting times
                 await transition(ctx, "ipd.admissions", enc["id"], "Discharge Initiated", values={"discharge_type": "Routine"})
+                decided = now() - timedelta(minutes=rnd.randint(25, 420))
+                await jpatch(ctx, "encounters", enc["id"], {"discharge_initiated_at": iso(decided)})
+                chk = ENTITY_TABLES["records"]
+                await ctx.conn.execute(chk.update().where(chk.c.module == "discharge", chk.c.entity == "checklists",
+                                                          chk.c.encounter_id == enc["id"]).values(
+                    data=chk.c.data.op("||")(sa.literal({"discharge_ordered_at": iso(decided)}, JSONB))))
+                adm_status = "Discharge Initiated"
             await backdate(ctx, "encounters", enc["id"], enc["started_at"])
+            ids["admissions"].append({"id": enc["id"], "patient_id": pid, "status": adm_status, "ward": b["ward"], "category": b["category"],
+                                      "started_at": enc["started_at"], "sponsor": sponsor, "doctor_id": enc["doctor_id"],
+                                      "diagnosis": diagnosis, "expected_los": enc.get("expected_los")})
             for k in range(days_in + 1):
                 dd = start + timedelta(days=k)
                 c1 = await post_charge(ctx, patient_id=pid, encounter_id=enc["id"], rate=b["rate"], description=f"Room rent — {b['category']} ({dd})",
@@ -409,10 +454,13 @@ async def seed_demo(ids: dict, n_patients: int = 1500) -> None:
                 pid = rnd.choice(pids)
                 los = rnd.randint(1, 6)
                 st = d - timedelta(days=los)
+                ended = datetime.fromisoformat(at(d, rnd.randint(11, 18), rnd.choice([0, 10, 20, 30, 40, 50])))
+                tat = int(rnd.triangular(70, 480, 150))  # discharge decision → bed free
                 enc = await create(ctx, "ipd.encounters", {
                     "patient_id": pid, "type": "IPD", "doctor_id": rnd.choice(ids["doctors"]["GMED"]), "department_id": ids["dept"][b["dept"]],
-                    "bed_id": b["id"], "started_at": at(st, 11), "ended_at": at(d, 13, 30), "status": "Discharged",
-                    "diagnosis": "Recovered", "payer": "Cash",
+                    "bed_id": b["id"], "started_at": at(st, 11), "ended_at": iso(ended), "status": "Discharged",
+                    "diagnosis": "Recovered", "payer": "Cash", "discharge_type": "Routine", "discharge_tat_minutes": tat,
+                    "discharge_initiated_at": iso(ended - timedelta(minutes=tat)),
                 })
                 await backdate(ctx, "encounters", enc["id"], at(st, 11))
                 for k in range(los):
@@ -426,9 +474,9 @@ async def seed_demo(ids: dict, n_patients: int = 1500) -> None:
     er_beds = [b for b in ids["beds"] if b["category"] == "ER"]
     async with system_ctx() as ctx:
         if has("er.visits"):
-            for back in range(6, -1, -1):
+            for back in range(6, 0, -1):  # today's visits run through the ER engine (phase2.er_today)
                 d = today() - timedelta(days=back)
-                for _ in range(rnd.randint(18, 30) if back else 14):
+                for _ in range(rnd.randint(18, 30)):
                     pid = rnd.choice(pids)
                     h = rnd.randint(0, 23) if back else rnd.randint(0, max(0, datetime.now().hour))
                     arrival = at(d, h, rnd.randint(0, 59))
@@ -443,8 +491,10 @@ async def seed_demo(ids: dict, n_patients: int = 1500) -> None:
                         "mlc": rnd.random() < 0.08, "disposition": rnd.choice(["Admitted", "Discharged", "Discharged", "Referred"]) if st == "Disposed" else None,
                     })
                     await backdate(ctx, "encounters", v["id"], arrival)
-            log("ER visits")
+            log("ER visits (past week)")
     _ = er_beds
+
+    await seed_phase2_activity(ids, pids)
 
 
 async def demo_order(ctx, ids, pid, enc_id, cat, code, d: date, minute: int, verified: bool) -> None:
@@ -538,12 +588,16 @@ async def main() -> None:
     t0 = time.time()
     print("seeding masters …")
     ids = await seed_masters()
+    print("seeding phase-2 masters …")
+    await seed_phase2_masters(ids, demo)
     if demo:
         print("seeding demo activity …")
         await seed_demo(ids)
     async with engine.begin() as conn:
         await conn.execute(audit_log.update().values(user_name="Seed"))
     await engine.dispose()
+    if STATS:
+        print(f"phase-2 activity: {summary()}")
     print(f"done in {time.time() - t0:.0f}s — sign in with the accounts listed in backend/.env.example")
     _ = (sequences, SYSTEM_USER, STORES)
 

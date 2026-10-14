@@ -1,0 +1,39 @@
+[project]
+name = "vlack-hrms-backend"
+version = "0.1.0"
+description = "Vlack HRMS — Hospital Information & Management System API (FastAPI)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi[standard]",
+  "sqlalchemy[asyncio]",
+  "asyncpg",
+  "alembic",
+  "psycopg[binary]",
+  "pydantic-settings",
+  "redis",
+  "arq",
+  "pyjwt",
+  "argon2-cffi",
+  "python-multipart",
+  "httpx",
+  "orjson",
+  "anthropic",
+  "openpyxl>=3.1.5",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]

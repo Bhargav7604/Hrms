@@ -1,0 +1,66 @@
+# Vlack HRMS — production-like stack.
+#   docker compose up -d --build
+#   docker compose exec api python -m app.seed            # masters + demo data (or --no-demo)
+# Then open http://localhost:8000
+#
+# For local development without Docker see scripts/devinfra.sh and README.md.
+
+x-app-env: &app-env
+  ENV: ${ENV:-production}
+  DATABASE_URL: postgresql+asyncpg://vlack:${POSTGRES_PASSWORD:-vlack}@postgres:5432/vlack_hrms
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a long random string}
+  HOSPITAL_NAME: ${HOSPITAL_NAME:-Vlack Multispecialty Hospital}
+  TIMEZONE: ${TIMEZONE:-Asia/Kolkata}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  NOTIFY_MODE: ${NOTIFY_MODE:-log}
+  AUTO_MIGRATE: "true"
+  CORS_ORIGINS: '["${PUBLIC_URL:-http://localhost:8000}"]'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vlack_hrms
+      POSTGRES_USER: vlack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vlack}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vlack -d vlack_hrms"]
+      interval: 5s
+      retries: 20
+    ports: ["127.0.0.1:5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes: [uploads:/srv/backend/data/uploads]
+    ports: ["8000:8000"]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    environment: { <<: *app-env, AUTO_MIGRATE: "false" }
+    command: ["arq", "app.worker.WorkerSettings"]
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:

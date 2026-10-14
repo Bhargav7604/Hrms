@@ -1,0 +1,23 @@
+INFO:     Started server process [31768]
+INFO:     Waiting for application startup.
+2026-10-13 17:45:57,985 INFO alembic.runtime.plugins: setup plugin alembic.autogenerate.schemas
+2026-10-13 17:45:57,985 INFO alembic.runtime.plugins: setup plugin alembic.autogenerate.tables
+2026-10-13 17:45:57,985 INFO alembic.runtime.plugins: setup plugin alembic.autogenerate.types
+2026-10-13 17:45:57,985 INFO alembic.runtime.plugins: setup plugin alembic.autogenerate.constraints
+2026-10-13 17:45:57,985 INFO alembic.runtime.plugins: setup plugin alembic.autogenerate.defaults
+2026-10-13 17:45:57,985 INFO alembic.runtime.plugins: setup plugin alembic.autogenerate.comments
+2026-10-13 17:45:57,985 INFO alembic.runtime.plugins: setup plugin alembic.ext.checkconstraint_byname
+2026-10-13 17:45:58,134 INFO alembic.runtime.migration: Context impl PostgresqlImpl.
+2026-10-13 17:45:58,134 INFO alembic.runtime.migration: Will assume transactional DDL.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8103 (Press CTRL+C to quit)
+INFO:     127.0.0.1:52413 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52417 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52419 - "GET /api/clinical/nursing?ward=c9c68adc-04a0-49ca-ba28-c167d675dc4c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52421 - "POST /api/pharmacy/plan HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52423 - "GET /api/inventory/console?store=IP%20Pharmacy HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52526 - "POST /api/m/codeblue/events/c4ae0b8d-e4a8-4a02-97c5-40043f6f3ff3/transition HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [31768]

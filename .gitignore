@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.env
+backend/data/
+.devinfra/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
+
+# reference recordings (third-party product screenshots — keep local)
+docs/reference/frames/
+*.local
+
+# internal analysis of a third-party product and build notes — keep local (public repo)
+docs/reference/
+docs/.engine-brief.md
+docs/.phase2-brief.md

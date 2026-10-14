@@ -51,7 +51,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "er": {"level": "edit", "no_pages": ["er-billing"]},
         "registration": {"level": "view", "pages": ["patient-search"]},
         "appointments": {"level": "view", "pages": []},
-        "queue": {"level": "view", "pages": ["queue-console"]},
+        "queue": {"level": "view", "pages": ["queue-console"], "entities": {"tokens": "edit"}},
         "nursing": "view", "lab": "view", "radiology": "view", "pharmacy": "view", "bloodbank": "view",
         "infection": "view",
         "ess": SELF_SERVICE,
@@ -64,7 +64,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "er": {"level": "edit", "no_pages": ["er-billing"]},
         "registration": {"level": "view", "pages": ["patient-search"]},
         "appointments": {"level": "view", "pages": []},
-        "queue": {"level": "view", "pages": ["queue-console"]},
+        "queue": {"level": "view", "pages": ["queue-console"], "entities": {"tokens": "edit"}},
         "lab": "view", "radiology": "view", "pharmacy": "view", "bloodbank": "view",
         "ess": SELF_SERVICE,
     },
@@ -84,7 +84,8 @@ PROFILES: dict[str, dict[str, Any]] = {
         "appointments": {"level": "none", "pages": ["op-billing", "op-bills"]},
         "registration": {"level": "view", "pages": ["patient-search"]},
         "ipd": {"level": "view", "pages": []},
-        "queue": {"level": "none", "pages": ["queue-console"]},
+        "dialysis": {"level": "view", "pages": ["dialysis-desk"]},
+        "queue": {"level": "view", "pages": ["queue-console"], "entities": {"tokens": "edit"}},
         "ess": SELF_SERVICE,
     },
     "pharmacist": {
@@ -93,7 +94,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "opd": {"level": "none", "entities": {"prescriptions": "view"}},
         "emr": {"level": "none", "entities": {"allergies": "view", "problems": "view"}},
         "orders": "view",
-        "queue": {"level": "none", "pages": ["queue-console"]},
+        "queue": {"level": "view", "pages": ["queue-console"], "entities": {"tokens": "edit"}},
         "safety": {"level": "none", "entities": {"incidents": "edit"}},
         "ess": SELF_SERVICE,
     },
@@ -102,7 +103,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "ivf": {"level": "none", "entities": {"embryology": "edit", "cryo_storage": "edit"}},
         "registration": {"level": "view", "pages": ["patient-search"]},
         "orders": "view",
-        "queue": {"level": "none", "pages": ["queue-console"]},
+        "queue": {"level": "view", "pages": ["queue-console"], "entities": {"tokens": "edit"}},
         "safety": {"level": "none", "entities": {"incidents": "edit"}},
         "ess": SELF_SERVICE,
     },
@@ -154,7 +155,8 @@ PROFILES: dict[str, dict[str, Any]] = {
 
 # Insight pages management can open (view) in any module.
 MANAGEMENT_PAGES = {"command-center", "analytics", "finance-console", "bed-board", "queue-monitor", "registers",
-                    "ai-audit", "er-tracking", "discharge-board", "dashboards", "reports", "asset-dashboard"}
+                    "ai-audit", "er-tracking", "discharge-board", "dashboards", "reports", "asset-dashboard",
+                    "dialysis-desk"}
 
 
 def _spec(role: str, module_id: str) -> dict | None:
